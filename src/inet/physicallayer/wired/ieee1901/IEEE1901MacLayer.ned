@@ -33,3 +33,4 @@ module IEEE1901MacLayer
         input phyIn @labels(IEEE1901Frame);
         output phyOut @labels(IEEE1901Frame);
 }
+

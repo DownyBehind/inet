@@ -45,3 +45,4 @@ module IEEE1901Interface
         phy.upperLayerOut --> out;
         phy.plc <--> plc;
 }
+
