@@ -10,9 +10,13 @@
 #include "inet/common/INETDefs.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
 #include "inet/common/lifecycle/OperationalBase.h"
+#include "inet/linklayer/base/MacProtocolBase.h"
 #include "inet/linklayer/plc/PLCFrame_m.h"
 
 namespace inet {
+
+// IEEE 1901 PLC specific constants
+static const int MTU = 1518; // Maximum Transmission Unit for PLC frames
 
 /**
  * IEEE 1901 MAC implementation for Power Line Communication.
@@ -23,7 +27,7 @@ namespace inet {
  * The module provides channel access coordination, frame transmission/reception,
  * and collision avoidance mechanisms suitable for PLC networks.
  */
-class INET_API IEEE1901Mac : public cSimpleModule
+class INET_API IEEE1901Mac : public MacProtocolBase
 {
   protected:
     // Module parameters
@@ -119,11 +123,14 @@ class INET_API IEEE1901Mac : public cSimpleModule
     // Helper methods
     virtual void handleUpperLayerFrame(cMessage *msg);
     virtual void handleLowerLayerFrame(cMessage *msg);
-    virtual void handleSelfMessage(cMessage *msg);
+    virtual void handleSelfMessage(cMessage *msg) override;
     virtual void handleBackoffTimer();
     virtual void handleTransmissionTimer();
     virtual void handleSifsTimer();
     virtual void handleDifsTimer();
+    
+    // Network interface configuration
+    virtual void configureNetworkInterface() override;
     
     // Channel state management
     virtual void setChannelBusy(bool busy);

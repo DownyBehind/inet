@@ -6,7 +6,7 @@
 
 #include "inet/linklayer/plc/IEEE1901Mac.h"
 #include "inet/common/ModuleAccess.h"
-#include "inet/common/ProtocolTag.h"
+#include "inet/common/ProtocolTag_m.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
 
 namespace inet {
@@ -126,6 +126,19 @@ void IEEE1901Mac::initialize(int stage)
         WATCH(currentFramePriority);
         
         updateDisplayString();
+    }
+}
+
+void IEEE1901Mac::configureNetworkInterface()
+{
+    EV_DEBUG << "IEEE1901Mac::configureNetworkInterface()" << endl;
+    
+    // Configure the network interface for PLC communication
+    // Set interface properties specific to IEEE 1901
+    if (networkInterface) {
+        networkInterface->setMtu(MTU);
+        networkInterface->setMulticast(true);
+        networkInterface->setBroadcast(true);
     }
 }
 
@@ -516,13 +529,13 @@ void IEEE1901Mac::handleSlotTimeout()
     isTransmitting = true;
     
     // Calculate transmission duration
-    simtime_t txDuration = currentFrame->getChunkLength().get() / bitrate;
+    simtime_t txDuration = (20 + currentFrame->getPayloadLength()) * 8.0 / bitrate;  // 20 bytes header + payload
     scheduleAt(simTime() + txDuration, txTimer);
     
     EV_INFO << "Frame transmission started - duration: " << txDuration << " s" << endl;
     
     // Send frame to lower layer (PHY)
-    send(currentFrame->dup(), "lowerLayerOut");
+    sendDown(currentFrame->dup());
     
     // Reset backoff procedure for successful transmission attempt
     resetBackoffProcedure();

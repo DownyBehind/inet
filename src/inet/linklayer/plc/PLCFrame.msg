@@ -21,10 +21,8 @@ namespace inet;
 // - ACK Required: Flag indicating if acknowledgment is required
 // - Transmission timing information for physical layer coordination
 //
-class PLCFrame extends FieldsChunk
+class PLCFrame extends cMessage
 {
-    chunkLength = B(20); // Basic frame header size (excluding payload)
-    
     // Frame Type field - indicates the type of PLC frame
     int frameType;       // 0=DATA, 1=BEACON, 2=CONTROL
     

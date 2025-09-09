@@ -6,7 +6,7 @@
 
 #include "inet/linklayer/plc/IEEE1901Phy.h"
 #include "inet/common/ModuleAccess.h"
-#include "inet/common/ProtocolTag.h"
+#include "inet/common/ProtocolTag_m.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
 #include <math.h>
 
@@ -297,11 +297,11 @@ void IEEE1901Phy::sendFrameToMac(PLCFrame *frame)
     EV_DEBUG << "IEEE1901Phy::sendFrameToMac()" << endl;
     
     // Add some reception delay to simulate processing time
-    simtime_t receptionDelay = frame->getChunkLength().get() / dataRate;
+    simtime_t receptionDelay = (20 + frame->getPayloadLength()) * 8.0 / dataRate;  // 20 bytes header + payload
     
     EV_INFO << "Forwarding frame to MAC layer - reception delay: " << receptionDelay << " s" << endl;
     
-    sendDelayed(frame, receptionDelay, "upperLayerOut");
+    sendDelayed(static_cast<cMessage*>(frame), receptionDelay, "upperLayerOut");
 }
 
 void IEEE1901Phy::sendFrameToChannel(PLCFrame *frame)
@@ -310,7 +310,7 @@ void IEEE1901Phy::sendFrameToChannel(PLCFrame *frame)
     
     EV_INFO << "Sending frame to channel at data rate: " << dataRate/1e6 << " Mbps" << endl;
     
-    send(frame, "lowerLayerOut");
+    send(static_cast<cMessage*>(frame), "lowerLayerOut");
 }
 
 simtime_t IEEE1901Phy::calculateTransmissionDuration(PLCFrame *frame)
@@ -319,7 +319,7 @@ simtime_t IEEE1901Phy::calculateTransmissionDuration(PLCFrame *frame)
     
     // Calculate transmission time based on frame size and data rate
     // Duration = (frame_size_bits) / (data_rate_bps)
-    int frameSizeBits = frame->getChunkLength().get();
+    int frameSizeBits = (20 + frame->getPayloadLength()) * 8;  // 20 bytes header + payload, convert to bits
     simtime_t duration = (double)frameSizeBits / dataRate;
     
     EV_DEBUG << "Transmission duration calculation:" << endl;

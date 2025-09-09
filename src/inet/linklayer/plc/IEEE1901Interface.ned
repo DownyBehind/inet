@@ -94,7 +94,8 @@ module IEEE1901Interface like IWirelessInterface
     gates:
         input upperLayerIn @labels(Packet);                  // From network layer
         output upperLayerOut @labels(Packet);                // To network layer
-        input radioIn @labels(PLCFrame) @loose;              // From PLC channel (optional for wireless interface compatibility)
+        input radioIn @labels(PLCFrame) @loose;              // From PLC channel (optional)
+        inout plc @labels(PLCFrame);                         // Wired PLC medium connection
         
     submodules:
         mac: IEEE1901Mac {
@@ -150,8 +151,9 @@ module IEEE1901Interface like IWirelessInterface
         // Connect MAC to PHY
         mac.lowerLayerOut --> phy.upperLayerIn;
         phy.upperLayerOut --> mac.lowerLayerIn;
-        
-        // Connect PHY to external channel (if radioIn is connected)
-        radioIn --> phy.lowerLayerIn if exists(radioIn);
-        phy.lowerLayerOut --> { @display("m=s"); } if exists(radioIn);
+
+    // Connect PHY to external channel
+    radioIn --> phy.lowerLayerIn if exists(radioIn);
+    plc --> phy.lowerLayerIn;
+    phy.lowerLayerOut --> plc;
 }
