@@ -357,10 +357,11 @@ void IEEE1901Phy::finish()
     EV_INFO << "  Bit errors: " << numBitErrors << endl;
     
     // Calculate derived statistics
-    if (numFramesSent > 0) {
-        double frameSuccessRate = (double)numFramesReceived / (numFramesSent) * 100.0;
-        recordScalar("frame success rate (%)", frameSuccessRate);
-        EV_INFO << "  Frame success rate: " << frameSuccessRate << "%" << endl;
+    // Report RX-side success ratio based on channel reception outcomes
+    if (numFramesReceived + numFramesDroppedBER > 0) {
+        double rxSuccessRate = (double)numFramesReceived / (numFramesReceived + numFramesDroppedBER) * 100.0;
+        recordScalar("rx success rate (%)", rxSuccessRate);
+        EV_INFO << "  RX success rate: " << rxSuccessRate << "%" << endl;
     }
     
     if (numBitsTransmitted > 0) {

@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 //
 
-import inet.common.INETDefs;
-import inet.common.packet.chunk.Chunk;
 
 namespace inet;
 
@@ -21,7 +19,7 @@ namespace inet;
 // - ACK Required: Flag indicating if acknowledgment is required
 // - Transmission timing information for physical layer coordination
 //
-class PLCFrame extends cMessage
+class PLCFrame extends cPacket
 {
     // Frame Type field - indicates the type of PLC frame
     int frameType;       // 0=DATA, 1=BEACON, 2=CONTROL

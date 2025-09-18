@@ -37,6 +37,8 @@ IEEE1901Mac::~IEEE1901Mac()
 void IEEE1901Mac::initialize(int stage)
 {
     EV_DEBUG << "IEEE1901Mac::initialize() stage " << stage << endl;
+    // IMPORTANT: Initialize base class to bind standard gates and lifecycle
+    MacProtocolBase::initialize(stage);
     
     if (stage == INITSTAGE_LOCAL) {
         // Read parameters from NED file
@@ -92,6 +94,7 @@ void IEEE1901Mac::initialize(int stage)
         numFramesDropped = 0;
         numCollisions = 0;
         numBackoffs = 0;
+        numTxAttempts = 0;
         
         // Create timer messages
         backoffTimer = new cMessage("backoffTimer");
@@ -105,6 +108,8 @@ void IEEE1901Mac::initialize(int stage)
     }
     else if (stage == INITSTAGE_LINK_LAYER) {
         EV_DEBUG << "IEEE1901Mac link layer initialization" << endl;
+        // cache lower layer out gate if available
+        lowerOutGate = hasGate("lowerLayerOut") ? gate("lowerLayerOut") : nullptr;
         
         // Register signals for statistics collection
         WATCH(numFramesSent);
@@ -302,6 +307,7 @@ void IEEE1901Mac::finish()
     recordScalar("frames dropped", numFramesDropped);
     recordScalar("collisions", numCollisions);
     recordScalar("backoffs", numBackoffs);
+    recordScalar("tx attempts", numTxAttempts);
     
     EV_INFO << "IEEE1901Mac statistics:" << endl;
     EV_INFO << "  Frames sent: " << numFramesSent << endl;
@@ -324,19 +330,54 @@ void IEEE1901Mac::finish()
     }
 }
 
-// Helper method implementations (stubs)
+// Helper method implementations (minimum viable path)
 void IEEE1901Mac::handleUpperLayerFrame(cMessage *msg)
 {
-    EV_DEBUG << "IEEE1901Mac::handleUpperLayerFrame() - stub implementation" << endl;
-    // TODO: Implement upper layer frame handling
-    delete msg;
+    EV_DEBUG << "IEEE1901Mac::handleUpperLayerFrame()" << endl;
+    PLCFrame *frame = dynamic_cast<PLCFrame *>(msg);
+    if (!frame) {
+        // Wrap unknown upper message into a PLCFrame for MAC processing
+        EV_WARN << "Wrapping non-PLCFrame (" << msg->getClassName() << ") into PLCFrame" << endl;
+        auto *f = new PLCFrame("PLC");
+        f->setFrameType(2);
+        f->setPriority(0);
+        f->setSrcAddr(0);
+        f->setDestAddr(0);
+        f->setPayloadLength(300);
+        f->setAckRequired(false);
+        delete msg;
+        frame = f;
+    }
+
+    // Drop newly arrived frame if we are already busy with another frame
+    bool macBusy = isTransmitting || currentFrame != nullptr || inPriorityResolution || backoffTimer->isScheduled();
+    if (macBusy) {
+        EV_WARN << "MAC busy (isTransmitting=" << isTransmitting
+                << ", hasCurrentFrame=" << (currentFrame != nullptr)
+                << ", inPRS=" << inPriorityResolution
+                << ", backoffScheduled=" << backoffTimer->isScheduled()
+                << ") - dropping incoming frame" << endl;
+        delete frame;
+        numFramesDropped++;
+        emit(framesDroppedSignal, numFramesDropped);
+        return;
+    }
+
+    // Begin transmission flow: PRS → Backoff → TX
+    startTransmission(frame);
 }
 
 void IEEE1901Mac::handleLowerLayerFrame(cMessage *msg)
 {
-    EV_DEBUG << "IEEE1901Mac::handleLowerLayerFrame() - stub implementation" << endl;
-    // TODO: Implement lower layer frame handling
-    delete msg;
+    EV_DEBUG << "IEEE1901Mac::handleLowerLayerFrame()" << endl;
+    PLCFrame *frame = dynamic_cast<PLCFrame *>(msg);
+    if (!frame) {
+        EV_WARN << "Dropping non-PLCFrame from lower layer: " << msg->getClassName() << endl;
+        delete msg;
+        return;
+    }
+    // Forward up to upper layers
+    sendUp(frame);
 }
 
 void IEEE1901Mac::handleSelfMessage(cMessage *msg)
@@ -380,22 +421,37 @@ void IEEE1901Mac::handleBackoffTimer()
 
 void IEEE1901Mac::handleTransmissionTimer()
 {
-    EV_DEBUG << "IEEE1901Mac::handleTransmissionTimer() - stub implementation" << endl;
-    // TODO: Implement transmission completion handling
+    EV_DEBUG << "IEEE1901Mac::handleTransmissionTimer() - TX complete" << endl;
     isTransmitting = false;
+    numFramesSent++;
+    emit(framesSentSignal, numFramesSent);
+    // Ensure no dangling pointer remains after TX completes
+    if (currentFrame) {
+        delete currentFrame;
+        currentFrame = nullptr;
+    }
+    // Schedule interframe spaces according to model (use SIFS/DIFS params as RIFS/CIFS)
+    if (!sifsTimer->isScheduled()) {
+        scheduleAt(simTime() + sifsTime, sifsTimer);
+        EV_DEBUG << "Scheduled SIFS (RIFS) timer at t=" << (simTime() + sifsTime) << endl;
+    }
     updateDisplayString();
 }
 
 void IEEE1901Mac::handleSifsTimer()
 {
     EV_DEBUG << "IEEE1901Mac::handleSifsTimer() - stub implementation" << endl;
-    // TODO: Implement SIFS timer handling
+    // After SIFS(RIFS), schedule DIFS(CIFS)
+    if (!difsTimer->isScheduled()) {
+        scheduleAt(simTime() + difsTime, difsTimer);
+        EV_DEBUG << "Scheduled DIFS (CIFS) timer at t=" << (simTime() + difsTime) << endl;
+    }
 }
 
 void IEEE1901Mac::handleDifsTimer()
 {
     EV_DEBUG << "IEEE1901Mac::handleDifsTimer() - stub implementation" << endl;
-    // TODO: Implement DIFS timer handling
+    // CIFS elapsed; medium returns to contention. Next PRS0 will be triggered by new upper frames.
 }
 
 void IEEE1901Mac::setChannelBusy(bool busy)
@@ -527,6 +583,7 @@ void IEEE1901Mac::handleSlotTimeout()
     
     // Start actual transmission
     isTransmitting = true;
+    numTxAttempts++;
     
     // Calculate transmission duration
     simtime_t txDuration = (20 + currentFrame->getPayloadLength()) * 8.0 / bitrate;  // 20 bytes header + payload
@@ -535,7 +592,20 @@ void IEEE1901Mac::handleSlotTimeout()
     EV_INFO << "Frame transmission started - duration: " << txDuration << " s" << endl;
     
     // Send frame to lower layer (PHY)
-    sendDown(currentFrame->dup());
+    cGate *g = hasGate("lowerLayerOut") ? gate("lowerLayerOut") : nullptr;
+    if (g && g->isConnected()) {
+        sendDown(currentFrame);
+        // ownership transferred to lower layer; clear pointer immediately
+        currentFrame = nullptr;
+    } else {
+        EV_WARN << "lowerLayerOut not connected, dropping frame" << endl;
+        delete currentFrame;
+        currentFrame = nullptr;
+        cancelEvent(txTimer);
+        isTransmitting = false;
+        updateDisplayString();
+        return;
+    }
     
     // Reset backoff procedure for successful transmission attempt
     resetBackoffProcedure();
@@ -643,13 +713,16 @@ void IEEE1901Mac::handlePrs1Timer()
         scheduleBackoff();
     } else {
         EV_INFO << "Lost priority resolution, deferring transmission" << endl;
-        // Reset state and wait for next opportunity
+        // Reset state and wait for next opportunity (ensure ownership cleanup)
         if (currentFrame) {
             delete currentFrame;
             currentFrame = nullptr;
             numFramesDropped++;
             emit(framesDroppedSignal, numFramesDropped);
         }
+        // cancel any scheduled timers related to this attempt
+        if (backoffTimer->isScheduled()) cancelEvent(backoffTimer);
+        if (txTimer->isScheduled()) cancelEvent(txTimer);
         resetBackoffProcedure();
     }
     

@@ -6,7 +6,7 @@
 
 package inet.linklayer.plc;
 
-import inet.linklayer.contract.IWirelessInterface;
+import inet.linklayer.base.MacProtocolBase;
 
 //
 // IEEE 1901 Medium Access Control (MAC) module for Power Line Communication.
@@ -30,7 +30,7 @@ import inet.linklayer.contract.IWirelessInterface;
 //
 // @see ~PLCFrame, ~PLCBeaconFrame, ~PLCDataFrame, ~PLCControlFrame
 //
-simple IEEE1901Mac
+simple IEEE1901Mac extends MacProtocolBase
 {
     parameters:
         @display("i=block/layer");
@@ -94,9 +94,5 @@ simple IEEE1901Mac
         double frameDetectionTime @unit(s) = default(2us);   // Time to detect frame start
         double framePreambleTime @unit(s) = default(8us);    // Preamble duration
         
-    gates:
-        input upperLayerIn @labels(Packet);     // From upper layers (network/transport)
-        output upperLayerOut @labels(Packet);   // To upper layers (network/transport)
-        input lowerLayerIn @labels(PLCFrame);   // From physical layer (PHY)
-        output lowerLayerOut @labels(PLCFrame); // To physical layer (PHY)
+    // inherit gates from MacProtocolBase (upper/lower in/out)
 }

@@ -68,6 +68,7 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     long numFramesSent;
     long numFramesReceived;
     long numFramesDropped;
+    long numTxAttempts;
     long numCollisions;
     long numBackoffs;
     
@@ -81,6 +82,8 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     
     // Current frame being processed
     PLCFrame *currentFrame;
+    // Cached gate pointer for lower layer out
+    cGate *lowerOutGate = nullptr;
     
     // Signals for statistics
     static simsignal_t framesSentSignal;

@@ -6,8 +6,7 @@
 
 package inet.linklayer.plc;
 
-import inet.linklayer.contract.IWirelessInterface;
-import inet.networklayer.common.InterfaceEntry;
+import inet.networklayer.common.NetworkInterface;
 
 //
 // IEEE 1901 Power Line Communication Interface
@@ -34,15 +33,15 @@ import inet.networklayer.common.InterfaceEntry;
 //
 // @see ~IEEE1901Mac, ~IEEE1901Phy, ~PLCFrame
 //
-module IEEE1901Interface like IWirelessInterface
+module IEEE1901Interface extends NetworkInterface
 {
     parameters:
         @display("i=block/ifcard;bgb=400,300");
-        @class(InterfaceEntry);
         
         // Interface identification
         string interfaceTableModule = default(absPath(".interfaceTable"));
-        string address = default("auto");
+        *.interfaceTableModule = default(absPath(this.interfaceTableModule));
+        string address @mutable = default("auto");
         double bitrate @unit(bps) = default(10Mbps);
         
         // Exposed PHY parameters
@@ -92,9 +91,8 @@ module IEEE1901Interface like IWirelessInterface
         double ackTimeout @unit(s) = default(100us);         // ACK timeout
         
     gates:
-        input upperLayerIn @labels(Packet);                  // From network layer
-        output upperLayerOut @labels(Packet);                // To network layer
-        input radioIn @labels(PLCFrame) @loose;              // From PLC channel (optional)
+        input upperLayerIn @labels(Packet);
+        output upperLayerOut @labels(Packet);
         inout plc @labels(PLCFrame);                         // Wired PLC medium connection
         
     submodules:
@@ -152,8 +150,6 @@ module IEEE1901Interface like IWirelessInterface
         mac.lowerLayerOut --> phy.upperLayerIn;
         phy.upperLayerOut --> mac.lowerLayerIn;
 
-    // Connect PHY to external channel
-    radioIn --> phy.lowerLayerIn if exists(radioIn);
-    plc --> phy.lowerLayerIn;
-    phy.lowerLayerOut --> plc;
+        phy.lowerLayerOut --> plc$o;
+        plc$i --> phy.lowerLayerIn;
 }
