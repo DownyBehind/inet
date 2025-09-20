@@ -26,12 +26,14 @@ IEEE1901Mac::~IEEE1901Mac()
     
     cancelAndDelete(backoffTimer);
     cancelAndDelete(txTimer);
-    cancelAndDelete(sifsTimer);
-    cancelAndDelete(difsTimer);
+    if (sifsTimer) { if (sifsTimer->isScheduled()) cancelEvent(sifsTimer); delete sifsTimer; sifsTimer=nullptr; }
+    if (difsTimer) { if (difsTimer->isScheduled()) cancelEvent(difsTimer); delete difsTimer; difsTimer=nullptr; }
     cancelAndDelete(prs0Timer);
     cancelAndDelete(prs1Timer);
     
     delete currentFrame;
+    // Dispose any pending upper-layer frames left in queue
+    while (!txQueue.empty()) { delete txQueue.front(); txQueue.pop_front(); }
 }
 
 void IEEE1901Mac::initialize(int stage)
@@ -97,12 +99,12 @@ void IEEE1901Mac::initialize(int stage)
         numTxAttempts = 0;
         
         // Create timer messages
-        backoffTimer = new cMessage("backoffTimer");
-        txTimer = new cMessage("txTimer");
-        sifsTimer = new cMessage("sifsTimer");
-        difsTimer = new cMessage("difsTimer");
-        prs0Timer = new cMessage("prs0Timer");
-        prs1Timer = new cMessage("prs1Timer");
+        backoffTimer = new cMessage("backoffTimer"); take(backoffTimer);
+        txTimer = new cMessage("txTimer"); take(txTimer);
+        sifsTimer = new cMessage("sifsTimer"); take(sifsTimer);
+        difsTimer = new cMessage("difsTimer"); take(difsTimer);
+        prs0Timer = new cMessage("prs0Timer"); take(prs0Timer);
+        prs1Timer = new cMessage("prs1Timer"); take(prs1Timer);
         
         EV_DEBUG << "IEEE1901Mac initialization stage " << stage << " completed" << endl;
     }
@@ -265,6 +267,7 @@ void IEEE1901Mac::updateCountersOnBusySlot()
         EV_DEBUG << "Scheduled next slot check (busy channel)" << endl;
     } else {
         EV_INFO << "BC reached 0 - ready to transmit after busy period ends" << endl;
+        EV_INFO << "OBS MAC_BC0 node=" << getFullPath() << " t=" << simTime() << endl;
     }
     
     updateDisplayString();
@@ -292,6 +295,7 @@ void IEEE1901Mac::updateCountersOnIdleSlot()
         }
     } else {
         EV_INFO << "BC already 0 - ready to transmit!" << endl;
+        EV_INFO << "OBS MAC_BC0 node=" << getFullPath() << " t=" << simTime() << endl;
         handleSlotTimeout();
     }
     
@@ -301,6 +305,7 @@ void IEEE1901Mac::updateCountersOnIdleSlot()
 void IEEE1901Mac::finish()
 {
     EV_DEBUG << "IEEE1901Mac::finish()" << endl;
+    EV_INFO << "IEEE1901Mac::finish() called at t=" << simTime() << " module=" << getFullPath() << endl;
     
     recordScalar("frames sent", numFramesSent);
     recordScalar("frames received", numFramesReceived);
@@ -328,6 +333,13 @@ void IEEE1901Mac::finish()
         recordScalar("average backoffs per frame", avgBackoffs);
         EV_INFO << "  Average backoffs per frame: " << avgBackoffs << endl;
     }
+    // Safety cleanup: dispose any pending frames that won't be transmitted after simulation ends
+    EV_INFO << "  Cleanup pending: txQueue size=" << txQueue.size() << ", has currentFrame=" << (currentFrame!=nullptr) << endl;
+    if (currentFrame) {
+        delete currentFrame;
+        currentFrame = nullptr;
+    }
+    while (!txQueue.empty()) { delete txQueue.front(); txQueue.pop_front(); }
 }
 
 // Helper method implementations (minimum viable path)
@@ -349,17 +361,11 @@ void IEEE1901Mac::handleUpperLayerFrame(cMessage *msg)
         frame = f;
     }
 
-    // Drop newly arrived frame if we are already busy with another frame
+    // If busy, enqueue instead of dropping (observer-level buffering, no 사양 변경)
     bool macBusy = isTransmitting || currentFrame != nullptr || inPriorityResolution || backoffTimer->isScheduled();
     if (macBusy) {
-        EV_WARN << "MAC busy (isTransmitting=" << isTransmitting
-                << ", hasCurrentFrame=" << (currentFrame != nullptr)
-                << ", inPRS=" << inPriorityResolution
-                << ", backoffScheduled=" << backoffTimer->isScheduled()
-                << ") - dropping incoming frame" << endl;
-        delete frame;
-        numFramesDropped++;
-        emit(framesDroppedSignal, numFramesDropped);
+        EV_INFO << "MAC busy; enqueue upper frame name=" << frame->getName() << " prio=CA" << frame->getPriority() << endl;
+        txQueue.push_back(frame);
         return;
     }
 
@@ -376,6 +382,11 @@ void IEEE1901Mac::handleLowerLayerFrame(cMessage *msg)
         delete msg;
         return;
     }
+    // Observer log: confirm delivery up to upper layer (SlacApp)
+    EV_INFO << "Delivering frame up to upper layer: mod=" << getFullPath()
+            << " name=" << frame->getName()
+            << " src=" << frame->getSrcAddr() << " dest=" << frame->getDestAddr()
+            << " prio=CA" << frame->getPriority() << endl;
     // Forward up to upper layers
     sendUp(frame);
 }
@@ -436,6 +447,8 @@ void IEEE1901Mac::handleTransmissionTimer()
         EV_DEBUG << "Scheduled SIFS (RIFS) timer at t=" << (simTime() + sifsTime) << endl;
     }
     updateDisplayString();
+
+    // If queued frames exist, start next immediately after CIFS elapses
 }
 
 void IEEE1901Mac::handleSifsTimer()
@@ -451,7 +464,13 @@ void IEEE1901Mac::handleSifsTimer()
 void IEEE1901Mac::handleDifsTimer()
 {
     EV_DEBUG << "IEEE1901Mac::handleDifsTimer() - stub implementation" << endl;
-    // CIFS elapsed; medium returns to contention. Next PRS0 will be triggered by new upper frames.
+    // CIFS elapsed; medium returns to contention. Dequeue next pending frame if any.
+    if (!txQueue.empty()) {
+        PLCFrame *next = txQueue.front();
+        txQueue.pop_front();
+        EV_INFO << "Dequeue next upper frame name=" << next->getName() << " prio=CA" << next->getPriority() << endl;
+        startTransmission(next);
+    }
 }
 
 void IEEE1901Mac::setChannelBusy(bool busy)
@@ -637,6 +656,7 @@ void IEEE1901Mac::startPriorityResolution(int framePriority)
         EV_WARN << "Already in priority resolution phase" << endl;
         return;
     }
+    // No functional bypass here; only monitoring logs are allowed during debugging
     
     // Initialize PRS state
     inPriorityResolution = true;
@@ -647,8 +667,17 @@ void IEEE1901Mac::startPriorityResolution(int framePriority)
     EV_INFO << "Starting Priority Resolution for CA" << framePriority << " frame" << endl;
     EV_INFO << "PRS0 duration: " << prs0Duration << " s" << endl;
     EV_INFO << "PRS1 duration: " << prs1Duration << " s" << endl;
+    // Observer-only: log PRS send intentions (no behavior change)
+    bool intent0_obs = shouldSendPrs0Signal(framePriority);
+    bool intent1_obs = shouldSendPrs1Signal(framePriority);
+    EV_INFO << "OBS PRS_INTENT node=" << getFullPath()
+            << " ca=" << framePriority
+            << " send0=" << (intent0_obs ? 1 : 0)
+            << " send1=" << (intent1_obs ? 1 : 0)
+            << " t=" << simTime() << endl;
     
     // Start PRS0 phase
+    EV_INFO << "[CHK] before PRS0 send" << endl;
     if (shouldSendPrs0Signal(framePriority)) {
         EV_INFO << "Sending signal in PRS0 slot (CA" << framePriority << ")" << endl;
         sendPrsSignal(0);
@@ -657,6 +686,7 @@ void IEEE1901Mac::startPriorityResolution(int framePriority)
     }
     
     // Schedule PRS0 completion
+    EV_INFO << "[CHK] scheduling PRS0 timer at " << (simTime() + prs0Duration) << endl;
     scheduleAt(simTime() + prs0Duration, prs0Timer);
     
     updateDisplayString();
@@ -774,9 +804,15 @@ void IEEE1901Mac::detectPrsSignal(int prsSlot)
     // TODO: Implement actual signal detection from physical layer
     // For simulation purposes, we simulate signal detection based on network conditions
     
-    // Simple simulation: assume signal detected if other nodes are competing
-    // In real implementation, this would come from PHY layer carrier sensing
-    bool signalDetected = uniform(0, 1) < 0.3; // 30% chance of detecting competing signal
+    // Temporary conservative model aligned with HPGP semantics:
+    // - For CA0 traffic, higher priorities (CA1-CA3) are the only reason to lose PRS.
+    //   If our current frame priority is CA0, do not randomly detect PRS signals here.
+    // - For CA1-CA3, keep a small chance to detect competing signals until proper PHY coupling is implemented.
+    bool signalDetected = false;
+    if (currentFramePriority >= 1) {
+        // In real implementation, this would come from PHY layer carrier sensing
+        signalDetected = uniform(0, 1) < 0.3; // placeholder for CA1-CA3 only
+    }
     
     if (prsSlot == 0) {
         prs0SignalDetected = signalDetected;

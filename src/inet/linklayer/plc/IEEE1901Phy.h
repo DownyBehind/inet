@@ -11,6 +11,7 @@
 #include "inet/common/lifecycle/ModuleOperations.h"
 #include "inet/common/lifecycle/OperationalBase.h"
 #include "inet/linklayer/plc/PLCFrame_m.h"
+#include <deque>
 
 namespace inet {
 
@@ -50,6 +51,15 @@ class INET_API IEEE1901Phy : public cSimpleModule
     bool isTransmitting;
     bool isReceiving;
     simtime_t currentTxDuration;
+    // Simple transmit queue to avoid busy-drop on back-to-back frames
+    std::deque<PLCFrame*> txQueue;
+    int txQueueCapacity = 4;
+    // Reusable self-message for TX end to avoid per-TX allocation/ownership issues
+    cMessage *txEndMsg = nullptr;
+    // Mailbox for delayed delivery to MAC (replaces sendDelayed ownership transfer)
+    std::deque<PLCFrame*> rxDeliverQueue;
+    std::deque<simtime_t> rxDeliverTimes;
+    cMessage *deliverToMacMsg = nullptr;
     
     // Statistics
     long numFramesSent;

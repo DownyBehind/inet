@@ -91,8 +91,9 @@ module IEEE1901Interface extends NetworkInterface
         double ackTimeout @unit(s) = default(100us);         // ACK timeout
         
     gates:
-        input upperLayerIn @labels(Packet);
-        output upperLayerOut @labels(Packet);
+        // Accept PLCFrame messages from/to upper layer (SlacApp uses PLCFrame)
+        input upperLayerIn @labels(PLCFrame);
+        output upperLayerOut @labels(PLCFrame);
         inout plc @labels(PLCFrame);                         // Wired PLC medium connection
         
     submodules:

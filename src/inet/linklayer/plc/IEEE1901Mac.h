@@ -12,6 +12,7 @@
 #include "inet/common/lifecycle/OperationalBase.h"
 #include "inet/linklayer/base/MacProtocolBase.h"
 #include "inet/linklayer/plc/PLCFrame_m.h"
+#include <deque>
 
 namespace inet {
 
@@ -75,6 +76,7 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     // Timers
     cMessage *backoffTimer;
     cMessage *txTimer;
+    // Reuse single-shot IFG timers to avoid rapid alloc/free and ownership confusion
     cMessage *sifsTimer;
     cMessage *difsTimer;
     cMessage *prs0Timer;
@@ -82,6 +84,8 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     
     // Current frame being processed
     PLCFrame *currentFrame;
+    // Upper layer transmit queue (buffers frames when MAC is busy)
+    std::deque<PLCFrame*> txQueue;
     // Cached gate pointer for lower layer out
     cGate *lowerOutGate = nullptr;
     

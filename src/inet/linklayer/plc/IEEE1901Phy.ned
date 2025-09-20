@@ -91,6 +91,10 @@ simple IEEE1901Phy
         double minDataRate @unit(bps) = default(2Mbps);      // Minimum data rate
         double maxDataRate @unit(bps) = default(14Mbps);     // Maximum data rate
         
+        // Test-only diagnostics (default disabled)
+        bool testInjectDcAtEvse = default(false);
+        int testInjectRepeat = default(0);
+        
     gates:
         input upperLayerIn @labels(PLCFrame);     // From MAC layer
         output upperLayerOut @labels(PLCFrame);   // To MAC layer

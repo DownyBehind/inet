@@ -8,9 +8,11 @@
 #include "inet/common/ModuleAccess.h"
 #include "inet/common/ProtocolTag_m.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
+#include "inet/common/InitStages.h"
 #include <math.h>
 
 namespace inet {
+static const char *INJECT_DC_MSG = "__inject_dc_request";
 
 Define_Module(IEEE1901Phy);
 
@@ -25,6 +27,20 @@ simsignal_t IEEE1901Phy::packetErrorRateSignal = cComponent::registerSignal("pac
 IEEE1901Phy::~IEEE1901Phy()
 {
     EV_DEBUG << "IEEE1901Phy destructor called" << endl;
+    // Cancel and delete reusable timers
+    if (txEndMsg) {
+        if (txEndMsg->isScheduled()) cancelEvent(txEndMsg);
+        delete txEndMsg; txEndMsg = nullptr;
+    }
+    if (deliverToMacMsg) {
+        if (deliverToMacMsg->isScheduled()) cancelEvent(deliverToMacMsg);
+        delete deliverToMacMsg; deliverToMacMsg = nullptr;
+    }
+    // Dispose any undelivered frames
+    while (!rxDeliverQueue.empty()) { delete rxDeliverQueue.front(); rxDeliverQueue.pop_front(); }
+    rxDeliverTimes.clear();
+    // Dispose any pending TX frames
+    while (!txQueue.empty()) { delete txQueue.front(); txQueue.pop_front(); }
 }
 
 void IEEE1901Phy::initialize(int stage)
@@ -73,6 +89,14 @@ void IEEE1901Phy::initialize(int stage)
         snrSamples = 0;
         
         EV_DEBUG << "IEEE1901Phy initialization stage " << stage << " completed" << endl;
+        // Test-only: schedule DC_REQUEST injection if enabled on this PHY (e.g., EVSE side)
+        if (hasPar("testInjectDcAtEvse") && (bool)par("testInjectDcAtEvse")) {
+            cMessage *m = new cMessage(INJECT_DC_MSG);
+            scheduleAt(simTime() + 0.2001, m);
+        }
+        // Create reusable delivery self-message
+        if (!deliverToMacMsg)
+            deliverToMacMsg = new cMessage("deliverToMac");
     }
     else if (stage == INITSTAGE_PHYSICAL_LAYER) {
         EV_DEBUG << "IEEE1901Phy physical layer initialization" << endl;
@@ -94,6 +118,47 @@ void IEEE1901Phy::initialize(int stage)
 void IEEE1901Phy::handleMessage(cMessage *msg)
 {
     EV_DEBUG << "IEEE1901Phy::handleMessage() - received message: " << msg->getName() << endl;
+    if (msg->isSelfMessage() && msg == txEndMsg) {
+        isTransmitting = false;
+        if (!txQueue.empty()) {
+            PLCFrame *next = txQueue.front();
+            txQueue.pop_front();
+            EV_INFO << "PHY TX end; dequeue next (q=" << txQueue.size() << ")" << endl;
+            handleFrameFromMac(next);
+        }
+        // do not delete reusable self-message
+        return;
+    }
+    if (msg->isSelfMessage() && msg == deliverToMacMsg) {
+        // Pop and deliver all due frames in order
+        while (!rxDeliverQueue.empty() && !rxDeliverTimes.empty() && rxDeliverTimes.front() <= simTime()) {
+            PLCFrame *f = rxDeliverQueue.front();
+            rxDeliverQueue.pop_front();
+            rxDeliverTimes.pop_front();
+            send(static_cast<cMessage*>(f), "upperLayerOut");
+        }
+        // Reschedule if more pending
+        if (!rxDeliverTimes.empty()) {
+            scheduleAt(rxDeliverTimes.front(), deliverToMacMsg);
+        }
+        return;
+    }
+    if (msg->isSelfMessage() && !strcmp(msg->getName(), INJECT_DC_MSG)) {
+        EV_WARN << "[TEST] Injecting synthetic DC_REQUEST at PHY " << getFullPath() << " t=" << simTime() << endl;
+        PLCFrame *f = new PLCFrame("DC_REQUEST");
+        f->setFrameType(2);
+        f->setPriority(3);
+        f->setSrcAddr(0);
+        f->setDestAddr(1);
+        f->setPayloadLength(300);
+        f->setByteLength(300);
+        f->setAckRequired(false);
+        sendFrameToMac(f);
+        // Single-shot injection; delete timer message (no runtime param mutation)
+        if (msg->getOwner() != this) take(msg);
+        delete msg;
+        return;
+    }
     
     PLCFrame *frame = dynamic_cast<PLCFrame *>(msg);
     if (!frame) {
@@ -211,8 +276,14 @@ void IEEE1901Phy::handleFrameFromMac(PLCFrame *frame)
     EV_DEBUG << "IEEE1901Phy::handleFrameFromMac() - frame type: " << frame->getFrameType() << endl;
     
     if (isTransmitting) {
-        EV_WARN << "PHY busy transmitting, dropping frame from MAC" << endl;
-        delete frame;
+        // Enqueue instead of dropping if capacity allows
+        if ((int)txQueue.size() < txQueueCapacity) {
+            EV_INFO << "PHY busy; enqueue frame from MAC (q=" << txQueue.size()+1 << "/" << txQueueCapacity << ")" << endl;
+            txQueue.push_back(frame);
+        } else {
+            EV_WARN << "PHY busy; TX queue full -> dropping frame from MAC" << endl;
+            delete frame;
+        }
         return;
     }
     
@@ -238,7 +309,7 @@ void IEEE1901Phy::handleFrameFromMac(PLCFrame *frame)
     // Send frame to channel (no errors on transmission side)
     sendFrameToChannel(frame);
     
-    // Schedule transmission end
+    // Schedule transmission end using reusable self-message
     scheduleTransmissionEnd(txDuration);
     
     updateDisplayString();
@@ -263,8 +334,12 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
     emit(snrSignal, snr);
     emit(berSignal, ber);
     
+    // Cache payload length and PER for later statistics emission
+    const int payloadLen = frame->getPayloadLength();
+    double per = calculatePacketErrorRate(payloadLen, ber);
+
     // Determine if frame should be dropped due to bit errors
-    bool dropFrame = shouldDropFrame(frame->getPayloadLength(), ber);
+    bool dropFrame = shouldDropFrame(payloadLen, ber);
     
     if (dropFrame) {
         EV_INFO << "Frame dropped due to bit errors (BER-based simulation)" << endl;
@@ -272,12 +347,14 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
         emit(framesDroppedBERSignal, numFramesDroppedBER);
         
         // Calculate estimated bit errors for statistics
-        int estimatedBitErrors = (int)(frame->getPayloadLength() * 8 * ber);
+        int estimatedBitErrors = (int)(payloadLen * 8 * ber);
         numBitErrors += estimatedBitErrors;
         
         delete frame;
     } else {
-        EV_INFO << "Frame received successfully, forwarding to MAC" << endl;
+    EV_INFO << "Frame received successfully at " << getFullPath() << ", forwarding to MAC: name="
+            << frame->getName() << " src=" << frame->getSrcAddr() << " dest=" << frame->getDestAddr()
+            << " prio=CA" << frame->getPriority() << endl;
         numFramesReceived++;
         emit(framesReceivedSignal, numFramesReceived);
         
@@ -285,8 +362,7 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
         sendFrameToMac(frame);
     }
     
-    // Emit packet error rate
-    double per = calculatePacketErrorRate(frame->getPayloadLength(), ber);
+    // Emit packet error rate (computed before potential deletion/ownership transfer)
     emit(packetErrorRateSignal, per);
     
     updateDisplayString();
@@ -300,15 +376,20 @@ void IEEE1901Phy::sendFrameToMac(PLCFrame *frame)
     simtime_t receptionDelay = (20 + frame->getPayloadLength()) * 8.0 / dataRate;  // 20 bytes header + payload
     
     EV_INFO << "Forwarding frame to MAC layer - reception delay: " << receptionDelay << " s" << endl;
-    
-    sendDelayed(static_cast<cMessage*>(frame), receptionDelay, "upperLayerOut");
+    // Mailbox delivery: keep ownership until scheduled delivery to avoid cross-module UAF
+    rxDeliverQueue.push_back(frame);
+    rxDeliverTimes.push_back(simTime() + receptionDelay);
+    if (!deliverToMacMsg->isScheduled())
+        scheduleAt(rxDeliverTimes.front(), deliverToMacMsg);
 }
 
 void IEEE1901Phy::sendFrameToChannel(PLCFrame *frame)
 {
     EV_DEBUG << "IEEE1901Phy::sendFrameToChannel()" << endl;
     
-    EV_INFO << "Sending frame to channel at data rate: " << dataRate/1e6 << " Mbps" << endl;
+    EV_INFO << "Sending frame to channel from " << getFullPath() << ": name="
+            << frame->getName() << " src=" << frame->getSrcAddr() << " dest=" << frame->getDestAddr()
+            << " prio=CA" << frame->getPriority() << " rate=" << dataRate/1e6 << "Mbps" << endl;
     
     send(static_cast<cMessage*>(frame), "lowerLayerOut");
 }
@@ -335,13 +416,18 @@ void IEEE1901Phy::scheduleTransmissionEnd(simtime_t duration)
     EV_DEBUG << "IEEE1901Phy::scheduleTransmissionEnd() - duration: " << duration << " s" << endl;
     
     // Schedule transmission completion
-    cMessage *txEndMsg = new cMessage("transmissionEnd");
+    if (!txEndMsg)
+        txEndMsg = new cMessage("transmissionEnd");
+    if (txEndMsg->isScheduled())
+        cancelEvent(txEndMsg);
+    if (txEndMsg->getOwner() != this) take(txEndMsg);
     scheduleAt(simTime() + duration, txEndMsg);
 }
 
 void IEEE1901Phy::finish()
 {
     EV_DEBUG << "IEEE1901Phy::finish()" << endl;
+    EV_INFO << "IEEE1901Phy::finish() called at t=" << simTime() << " module=" << getFullPath() << endl;
     
     recordScalar("frames sent", numFramesSent);
     recordScalar("frames received", numFramesReceived);
@@ -374,6 +460,11 @@ void IEEE1901Phy::finish()
         double avgSNR = totalSNR / snrSamples;
         recordScalar("average SNR (dB)", avgSNR);
         EV_INFO << "  Average SNR: " << avgSNR << " dB" << endl;
+    }
+    // Cleanup reusable self-message safely
+    if (txEndMsg) {
+        if (txEndMsg->isScheduled()) cancelEvent(txEndMsg);
+        delete txEndMsg; txEndMsg = nullptr;
     }
 }
 
