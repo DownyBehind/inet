@@ -72,6 +72,10 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     long numTxAttempts;
     long numCollisions;
     long numBackoffs;
+    // Additional observability counters (no behavior change)
+    long numBpcIncrements;          // counts all places where BPC++ occurs
+    long numDcZeroBusyIncrements;   // subset: BPC++ due to DC==0 & busy
+    long numTxFailCollisions;       // future use: explicit collision model
     
     // Timers
     cMessage *backoffTimer;

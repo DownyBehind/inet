@@ -1,3 +1,5 @@
+// Minimal message file placeholder to ensure compilation in case of missing includes
+// (The real PLCFrame_m.h is assumed generated elsewhere in the project.)
 //
 // Copyright (C) 2025 INET Framework
 //

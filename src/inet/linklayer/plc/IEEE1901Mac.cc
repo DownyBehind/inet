@@ -97,6 +97,9 @@ void IEEE1901Mac::initialize(int stage)
         numCollisions = 0;
         numBackoffs = 0;
         numTxAttempts = 0;
+        numBpcIncrements = 0;
+        numDcZeroBusyIncrements = 0;
+        numTxFailCollisions = 0;
         
         // Create timer messages
         backoffTimer = new cMessage("backoffTimer"); take(backoffTimer);
@@ -131,6 +134,9 @@ void IEEE1901Mac::initialize(int stage)
         WATCH(prs1SignalDetected);
         WATCH(wonPriorityResolution);
         WATCH(currentFramePriority);
+        WATCH(numBpcIncrements);
+        WATCH(numDcZeroBusyIncrements);
+        WATCH(numTxFailCollisions);
         
         updateDisplayString();
     }
@@ -210,7 +216,11 @@ void IEEE1901Mac::scheduleBackoff()
     }
     
     // Initialize backoff counters according to HomePlug 1.0
+    // Per Table I: start at BPC=0 parameters, then immediately advance BPC bookkeeping
     initializeBackoffCounters(currentFramePriority, backoffProcedureCounter);
+    // After BC and DC are updated, BPC immediately increases by one (paper spec)
+    backoffProcedureCounter++;
+    numBpcIncrements++;
     
     EV_INFO << "HomePlug 1.0 Backoff initialized:" << endl;
     EV_INFO << "  Priority: CA" << currentFramePriority << endl;
@@ -252,6 +262,8 @@ void IEEE1901Mac::updateCountersOnBusySlot()
         
         // Increase BPC and reset counters
         backoffProcedureCounter++;
+        numBpcIncrements++;
+        numDcZeroBusyIncrements++;
         initializeBackoffCounters(currentFramePriority, backoffProcedureCounter);
         
         EV_INFO << "  Updated BPC: " << backoffProcedureCounter << endl;
@@ -313,6 +325,9 @@ void IEEE1901Mac::finish()
     recordScalar("collisions", numCollisions);
     recordScalar("backoffs", numBackoffs);
     recordScalar("tx attempts", numTxAttempts);
+    recordScalar("bpc_increments", numBpcIncrements);
+    recordScalar("dc_zero_busy_increments", numDcZeroBusyIncrements);
+    recordScalar("tx_fail_collisions", numTxFailCollisions);
     
     EV_INFO << "IEEE1901Mac statistics:" << endl;
     EV_INFO << "  Frames sent: " << numFramesSent << endl;

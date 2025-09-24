@@ -15,6 +15,8 @@ namespace inet {
 static const char *INJECT_DC_MSG = "__inject_dc_request";
 
 Define_Module(IEEE1901Phy);
+// Static registry for simple collision modeling
+std::vector<IEEE1901Phy*> IEEE1901Phy::activeTransmitters;
 
 // Signal definitions
 simsignal_t IEEE1901Phy::framesSentSignal = cComponent::registerSignal("framesSent");
@@ -55,6 +57,7 @@ void IEEE1901Phy::initialize(int stage)
         channelAttenuation = par("channelAttenuation").doubleValue();
         enableBER = par("enableBER").boolValue();
         baseSNR = par("baseSNR").doubleValue();
+        if (hasPar("enableCollisionModel")) enableCollisionModel = par("enableCollisionModel").boolValue();
         
         // BER calculation parameters
         berAlpha = par("berAlpha").doubleValue();
@@ -120,6 +123,11 @@ void IEEE1901Phy::handleMessage(cMessage *msg)
     EV_DEBUG << "IEEE1901Phy::handleMessage() - received message: " << msg->getName() << endl;
     if (msg->isSelfMessage() && msg == txEndMsg) {
         isTransmitting = false;
+        // Remove from active transmitters registry
+        if (enableCollisionModel) {
+            auto it = std::find(activeTransmitters.begin(), activeTransmitters.end(), this);
+            if (it != activeTransmitters.end()) activeTransmitters.erase(it);
+        }
         if (!txQueue.empty()) {
             PLCFrame *next = txQueue.front();
             txQueue.pop_front();
@@ -305,6 +313,20 @@ void IEEE1901Phy::handleFrameFromMac(PLCFrame *frame)
     emit(framesSentSignal, numFramesSent);
     
     EV_INFO << "Starting transmission - duration: " << txDuration << " s" << endl;
+    // Register for collision model and check simultaneous TX
+    txCollided = false;
+    if (enableCollisionModel) {
+        // If another PHY is already transmitting overlapping in this slot window, mark collision
+        // Simple heuristic: any overlap in time implies collision for both
+        for (auto *phy : activeTransmitters) {
+            if (phy != this) {
+                txCollided = true;
+                phy->txCollided = true;
+            }
+        }
+        activeTransmitters.push_back(this);
+        if (txCollided) EV_WARN << "[COLLISION] Simultaneous TX detected at channel level" << endl;
+    }
     
     // Send frame to channel (no errors on transmission side)
     sendFrameToChannel(frame);
@@ -340,6 +362,11 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
 
     // Determine if frame should be dropped due to bit errors
     bool dropFrame = shouldDropFrame(payloadLen, ber);
+    // If explicit collision model is enabled and transmitter marked collided, drop
+    if (enableCollisionModel && txCollided) {
+        EV_WARN << "Dropping frame due to explicit collision model" << endl;
+        dropFrame = true;
+    }
     
     if (dropFrame) {
         EV_INFO << "Frame dropped due to bit errors (BER-based simulation)" << endl;

@@ -12,6 +12,7 @@
 #include "inet/common/lifecycle/OperationalBase.h"
 #include "inet/linklayer/plc/PLCFrame_m.h"
 #include <deque>
+#include <vector>
 
 namespace inet {
 
@@ -39,6 +40,7 @@ class INET_API IEEE1901Phy : public cSimpleModule
     double channelAttenuation;    // Channel attenuation factor
     bool enableBER;               // Enable/disable BER simulation
     double baseSNR;               // Base SNR for BER calculation
+    bool enableCollisionModel = false; // Optional: explicit same-slot collision model (default off)
     
     // BER calculation parameters
     double berAlpha;              // BER exponential mapping parameter (alpha)
@@ -51,6 +53,7 @@ class INET_API IEEE1901Phy : public cSimpleModule
     bool isTransmitting;
     bool isReceiving;
     simtime_t currentTxDuration;
+    bool txCollided = false;      // Mark if current TX experienced a collision
     // Simple transmit queue to avoid busy-drop on back-to-back frames
     std::deque<PLCFrame*> txQueue;
     int txQueueCapacity = 4;
@@ -60,6 +63,8 @@ class INET_API IEEE1901Phy : public cSimpleModule
     std::deque<PLCFrame*> rxDeliverQueue;
     std::deque<simtime_t> rxDeliverTimes;
     cMessage *deliverToMacMsg = nullptr;
+    // Global registry for simple collision modeling (shared across instances)
+    static std::vector<IEEE1901Phy*> activeTransmitters;
     
     // Statistics
     long numFramesSent;

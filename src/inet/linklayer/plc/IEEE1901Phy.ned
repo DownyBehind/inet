@@ -58,6 +58,7 @@ simple IEEE1901Phy
         // Signal quality parameters
         double baseSNR @unit(dB) = default(25dB);            // Base signal-to-noise ratio
         bool enableBER = default(true);                      // Enable bit error rate simulation
+        bool enableCollisionModel = default(false);          // Optional explicit same-slot collision model (default off)
         
         // BER calculation parameters (exponential mapping)
         double berAlpha = default(0.5);                      // BER exponential coefficient (alpha)
