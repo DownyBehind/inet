@@ -142,9 +142,12 @@ module IEEE1901Interface extends NetworkInterface
                 maxBER = parent.maxBER;
         }
         
-    connections:
+        relay: UpperRelay { @display("p=120,60"); }
+    connections allowunconnected:
         // Connect upper layer to MAC
-        upperLayerIn --> mac.upperLayerIn;
+        // Route upper frames through a debug relay for tracing
+        upperLayerIn --> relay.in;
+        relay.out --> mac.upperLayerIn;
         mac.upperLayerOut --> upperLayerOut;
         
         // Connect MAC to PHY

@@ -127,6 +127,10 @@ void IEEE1901Phy::handleMessage(cMessage *msg)
         if (enableCollisionModel) {
             auto it = std::find(activeTransmitters.begin(), activeTransmitters.end(), this);
             if (it != activeTransmitters.end()) activeTransmitters.erase(it);
+            EV_DEBUG << "[COLL_TRACE] unregister TX phy=" << getFullPath()
+                     << " activeAfter=" << activeTransmitters.size()
+                     << " collided=" << txCollided
+                     << " t=" << simTime() << endl;
         }
         // Notify MAC: PHY busy off
         {
@@ -332,18 +336,24 @@ void IEEE1901Phy::handleFrameFromMac(PLCFrame *frame)
     // Register for collision model and check simultaneous TX
     txCollided = false;
     if (enableCollisionModel) {
+        EV_INFO << "[COLL_TRACE] pre-register activeSz=" << activeTransmitters.size() << " t=" << simTime() << endl;
         // If another PHY is already transmitting overlapping in this slot window, mark collision
         // Simple heuristic: any overlap in time implies collision for both
         for (auto *phy : activeTransmitters) {
             if (phy != this) {
                 txCollided = true;
                 phy->txCollided = true;
-                EV_ALWAYS << "[PHY_COLLISION] overlap tx between " << getFullPath()
+            EV_INFO << "[PHY_COLLISION] overlap tx between " << getFullPath()
                         << " and " << phy->getFullPath() << " at t=" << simTime() << endl;
             }
         }
+        size_t before = activeTransmitters.size();
         activeTransmitters.push_back(this);
-        if (txCollided) EV_ALWAYS << "[COLLISION] Simultaneous TX detected at channel level" << endl;
+        EV_DEBUG << "[COLL_TRACE] register TX phy=" << getFullPath()
+                 << " activeBefore=" << before
+                 << " activeAfter=" << activeTransmitters.size()
+                 << " t=" << simTime() << endl;
+        if (txCollided) EV_INFO << "[COLLISION] Simultaneous TX detected at channel level" << endl;
     }
     
     // Send frame to channel (no errors on transmission side)

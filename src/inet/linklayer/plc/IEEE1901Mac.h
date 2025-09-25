@@ -12,9 +12,11 @@
 #include "inet/common/lifecycle/OperationalBase.h"
 #include "inet/linklayer/base/MacProtocolBase.h"
 #include "inet/linklayer/plc/PLCFrame_m.h"
+#include "inet/linklayer/plc/IEEE1901PrsTypes.h"
 #include <deque>
 #include <set>
 #include <vector>
+#include "inet/linklayer/plc/IEEE1901Scheduler.h"
 
 namespace inet {
 
@@ -70,6 +72,8 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     bool sentPrs1;
     bool otherPrs0Present;
     bool otherPrs1Present;
+    cMessage *prs0Timer = nullptr;
+    cMessage *prs1Timer = nullptr;
     
     // Statistics
     long numFramesSent;
@@ -89,7 +93,7 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     // Reuse single-shot IFG timers to avoid rapid alloc/free and ownership confusion
     cMessage *sifsTimer;
     cMessage *difsTimer;
-    
+ 
     // Current frame being processed
     PLCFrame *currentFrame;
     // Backup for MAC-layer retransmission in case of PHY TX failure
@@ -109,14 +113,10 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     static int s_activeTxCount;
     static std::vector<IEEE1901Mac*> s_macInstances;
 
-    struct PrsWindowResult {
-        bool detected = false;
-        bool otherPresent = false;
-    };
-    PrsWindowResult prsWindowResult[2];
-    int prsSlotGeneration[2];
-    omnetpp::simtime_t prsWindowEnd[2];
+    friend class IEEE1901GlobalScheduler;
 
+    PrsWindowResult prsWindowResult[2];
+    bool pendingPrsSend[2] = {false, false};
     int activePrsGeneration = -1;
 
     cMessage *retryTimer = nullptr;
@@ -178,8 +178,8 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     virtual void detectPrsSignal(int prsSlot);
     virtual bool evaluatePriorityResolution(int framePriority);
   public:
-    void onPrsPhaseStart(int slot, int generation, omnetpp::simtime_t start, omnetpp::simtime_t end);
-    void onPrsPhaseEnd(int slot, int generation);
+    virtual void onPrsPhaseStart(int slot, int generation, omnetpp::simtime_t start, omnetpp::simtime_t end);
+    virtual void onPrsPhaseEnd(int slot, int generation);
     
     // Helper methods
     virtual void handleUpperLayerFrame(cMessage *msg);

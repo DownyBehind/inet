@@ -5,6 +5,7 @@
 #include <set>
 #include <vector>
 #include "omnetpp.h"
+#include "inet/linklayer/plc/IEEE1901PrsTypes.h"
 
 namespace inet {
 
@@ -13,12 +14,6 @@ class IEEE1901Mac;
 class IEEE1901GlobalScheduler
 {
   public:
-    struct PrsWindowResult {
-        bool detected = false;
-        bool otherPresent = false;
-        bool selfSent = false;
-    };
-
     static IEEE1901GlobalScheduler& getInstance();
 
     void registerMac(IEEE1901Mac *mac);
@@ -28,6 +23,7 @@ class IEEE1901GlobalScheduler
     void recordPrsTransmission(IEEE1901Mac *mac, int slot);
 
     PrsWindowResult queryPrsResult(IEEE1901Mac *mac, int slot) const;
+    const std::set<IEEE1901Mac*>& getPrsParticipants(int slot) const { return prsParticipants[slot]; }
 
     void handleSchedulerMessage(omnetpp::cMessage *msg);
 
@@ -56,8 +52,8 @@ class IEEE1901GlobalScheduler
 
     bool prsActive = false;
     int prsGeneration = 0;
-    omnetpp::simtime_t storedPrs0Duration = omnetpp::SIMTIME_ZERO;
-    omnetpp::simtime_t storedPrs1Duration = omnetpp::SIMTIME_ZERO;
+    omnetpp::simtime_t storedPrs0Duration = 0;
+    omnetpp::simtime_t storedPrs1Duration = 0;
 
     std::vector<MacEntry> macs;
     std::map<IEEE1901Mac*, PrsRequest> activeRequests;

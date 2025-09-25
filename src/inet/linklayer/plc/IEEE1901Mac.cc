@@ -5,18 +5,20 @@
 //
 
 #include "inet/linklayer/plc/IEEE1901Mac.h"
-#include "inet/linklayer/plc/IEEE1901Scheduler.h"
+#include "inet/linklayer/plc/IEEE1901PrsTypes.h"
 #include <algorithm>
-// Shared PRS bus state definitions
-std::vector<IEEE1901Mac*> IEEE1901Mac::s_macInstances;
-bool IEEE1901Mac::s_channelBusy = false;
-omnetpp::simtime_t IEEE1901Mac::s_busyUntil = SIMTIME_ZERO;
-int IEEE1901Mac::s_activeTxCount = 0;
+#include "inet/linklayer/plc/IEEE1901Scheduler.h"
 #include "inet/common/ModuleAccess.h"
 #include "inet/common/ProtocolTag_m.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
 
 namespace inet {
+
+// Shared PRS bus state definitions
+std::vector<IEEE1901Mac*> IEEE1901Mac::s_macInstances;
+bool IEEE1901Mac::s_channelBusy = false;
+omnetpp::simtime_t IEEE1901Mac::s_busyUntil = SIMTIME_ZERO;
+int IEEE1901Mac::s_activeTxCount = 0;
 
 Define_Module(IEEE1901Mac);
 
@@ -100,10 +102,6 @@ void IEEE1901Mac::initialize(int stage)
         prs1SignalDetected = false;
         wonPriorityResolution = false;
         currentFramePriority = 0;
-        prsSlotGeneration[0] = prsSlotGeneration[1] = 0;
-        prsWindowEnd[0] = prsWindowEnd[1] = SIMTIME_ZERO;
-        s_prsBus.resetSlot(0);
-        s_prsBus.resetSlot(1);
         
         // Initialize statistics
         numFramesSent = 0;
@@ -176,6 +174,10 @@ void IEEE1901Mac::configureNetworkInterface()
 void IEEE1901Mac::handleMessage(cMessage *msg)
 {
     EV_DEBUG << "IEEE1901Mac::handleMessage() - received message: " << msg->getName() << endl;
+    EV_INFO << "[MSG_IN] node=" << getFullPath()
+            << " name=" << msg->getName()
+            << " arrivalGate=" << (msg->getArrivalGate() ? msg->getArrivalGate()->getFullName() : "(null)")
+            << " t=" << simTime() << endl;
     
     if (msg->isSelfMessage()) {
         if (msg == retryTimer) {
@@ -184,8 +186,10 @@ void IEEE1901Mac::handleMessage(cMessage *msg)
         }
         handleSelfMessage(msg);
     }
-    else if (msg->getArrivalGate()->isName("upperLayerIn")) {
-        EV_DEBUG << "Handling frame from upper layer" << endl;
+    else if (msg->getArrivalGate() && (!strcmp(msg->getArrivalGate()->getBaseName(), "upperLayerIn")
+             || msg->getArrivalGate() == gate("upperLayerIn"))) {
+        EV_INFO << "[UL_RX] Handling frame from upper layer at " << getFullPath()
+                 << " gate=" << msg->getArrivalGate()->getFullName() << " t=" << simTime() << endl;
         handleUpperLayerFrame(msg);
     }
     else if (msg->getArrivalGate()->isName("lowerLayerIn")) {
@@ -249,10 +253,20 @@ void IEEE1901Mac::notePrsTransmission(int prsSlot)
         sentPrs1 = true;
 }
 
-IEEE1901Mac::PrsWindowResult IEEE1901Mac::concludePrsWindow(int prsSlot)
+PrsWindowResult IEEE1901Mac::concludePrsWindow(int prsSlot)
 {
     auto result = IEEE1901GlobalScheduler::getInstance().queryPrsResult(this, prsSlot);
     prsWindowResult[prsSlot] = result;
+    if (inPriorityResolution) {
+        if (prsSlot == 0) {
+            prs0SignalDetected = result.detected;
+            otherPrs0Present = result.otherPresent;
+        }
+        else if (prsSlot == 1) {
+            prs1SignalDetected = result.detected;
+            otherPrs1Present = result.otherPresent;
+        }
+    }
     return result;
 }
 
@@ -276,7 +290,7 @@ bool IEEE1901Mac::shouldDeferPriority(int framePriority) const
 void IEEE1901Mac::handlePriorityLoss()
 {
     EV_INFO << "Lost priority resolution, deferring transmission" << endl;
-    EV_ALWAYS << "[PRS_DEFER] node=" << getFullPath() << " t=" << simTime() << endl;
+    EV_INFO << "[PRS_DEFER] node=" << getFullPath() << " t=" << simTime() << endl;
     if (currentFrame) {
         txQueue.push_front(currentFrame);
         currentFrame = nullptr;
@@ -290,6 +304,7 @@ void IEEE1901Mac::handlePriorityLoss()
 void IEEE1901Mac::handlePriorityWin()
 {
     EV_INFO << "Won priority resolution, proceeding to HomePlug 1.0 backoff stage" << endl;
+    EV_INFO << "[PRS_WIN] node=" << getFullPath() << " t=" << simTime() << endl;
     scheduleBackoff();
 }
 
@@ -312,6 +327,7 @@ void IEEE1901Mac::onRetryTimer()
 
 void IEEE1901Mac::processSlotResult(bool busy)
 {
+    EV_INFO << "[SLOT_RESULT] node=" << getFullPath() << " busy=" << busy << " t=" << simTime() << endl;
     if (busy)
         updateCountersOnBusySlot();
     else
@@ -338,14 +354,24 @@ void IEEE1901Mac::handlePhyControl(cMessage *msg)
 
 void IEEE1901Mac::processPhyBusyNotification()
 {
+    int before = s_activeTxCount;
     s_activeTxCount = std::max(0, s_activeTxCount + 1);
     s_channelBusy = (s_activeTxCount > 0);
+    EV_INFO << "[BUSY_TRACE] PHY_BUSY_ON beforeRef=" << before
+             << " afterRef=" << s_activeTxCount
+             << " s_channelBusy=" << s_channelBusy
+             << " t=" << simTime() << endl;
 }
 
 void IEEE1901Mac::processPhyIdleNotification()
 {
+    int before = s_activeTxCount;
     s_activeTxCount = std::max(0, s_activeTxCount - 1);
     s_channelBusy = (s_activeTxCount > 0);
+    EV_INFO << "[BUSY_TRACE] PHY_BUSY_OFF beforeRef=" << before
+             << " afterRef=" << s_activeTxCount
+             << " s_channelBusy=" << s_channelBusy
+             << " t=" << simTime() << endl;
 }
 
 void IEEE1901Mac::handleTxFailure()
@@ -367,6 +393,7 @@ void IEEE1901Mac::handleTxFailure()
 void IEEE1901Mac::scheduleBackoff()
 {
     EV_DEBUG << "IEEE1901Mac::scheduleBackoff() - HomePlug 1.0 algorithm" << endl;
+    EV_INFO << "[BK_START] node=" << getFullPath() << " BPC=" << backoffProcedureCounter << " t=" << simTime() << endl;
     
     if (backoffTimer->isScheduled()) {
         EV_DEBUG << "Backoff timer already scheduled" << endl;
@@ -427,7 +454,7 @@ void IEEE1901Mac::updateCountersOnBusySlot()
         numBpcIncrements++;
         numDcZeroBusyIncrements++;
         initializeBackoffCounters(currentFramePriority, backoffProcedureCounter);
-        EV_ALWAYS << "[BUSY_SLOT] escalate node=" << getFullPath()
+        EV_INFO << "[BUSY_SLOT] escalate node=" << getFullPath()
                 << " newBPC=" << backoffProcedureCounter
                 << " newDC=" << deferralCounter
                 << " newCW=" << currentCW
@@ -455,7 +482,7 @@ void IEEE1901Mac::updateCountersOnBusySlot()
 void IEEE1901Mac::updateCountersOnIdleSlot()
 {
     EV_DEBUG << "IEEE1901Mac::updateCountersOnIdleSlot() - HomePlug 1.0 algorithm" << endl;
-    EV_ALWAYS << "[IDLE_SLOT] node=" << getFullPath()
+    EV_INFO << "[IDLE_SLOT] node=" << getFullPath()
             << " slotIndex=" << backoffCounterBC
             << " DC=" << deferralCounter
             << " t=" << simTime() << endl;
@@ -478,7 +505,7 @@ void IEEE1901Mac::updateCountersOnIdleSlot()
         }
     } else {
         EV_INFO << "BC already 0 - ready to transmit!" << endl;
-        EV_ALWAYS << "[IDLE_SLOT] immediate_tx node=" << getFullPath() << " t=" << simTime() << endl;
+        EV_INFO << "[IDLE_SLOT] immediate_tx node=" << getFullPath() << " t=" << simTime() << endl;
         EV_INFO << "OBS MAC_BC0 node=" << getFullPath() << " t=" << simTime() << endl;
         handleSlotTimeout();
     }
@@ -532,7 +559,7 @@ void IEEE1901Mac::finish()
 // Helper method implementations (minimum viable path)
 void IEEE1901Mac::handleUpperLayerFrame(cMessage *msg)
 {
-    EV_DEBUG << "IEEE1901Mac::handleUpperLayerFrame()" << endl;
+    EV_INFO << "[UL_DISPATCH] name=" << msg->getName() << " t=" << simTime() << endl;
     PLCFrame *frame = dynamic_cast<PLCFrame *>(msg);
     if (!frame) {
         // Wrap unknown upper message into a PLCFrame for MAC processing
@@ -578,7 +605,15 @@ void IEEE1901Mac::handleLowerLayerFrame(cMessage *msg)
 void IEEE1901Mac::handleSelfMessage(cMessage *msg)
 {
     EV_DEBUG << "IEEE1901Mac::handleSelfMessage() - " << msg->getName() << endl;
-    
+
+    auto &scheduler = IEEE1901GlobalScheduler::getInstance();
+    if (msg->getContextPointer() == &scheduler) {
+        EV_DEBUG << "[PRS_SCHED] forwarding scheduler message name=" << msg->getName()
+                 << " t=" << simTime() << endl;
+        scheduler.handleSchedulerMessage(msg);
+        return;
+    }
+
     if (msg == backoffTimer) {
         handleBackoffTimer();
     }
@@ -606,6 +641,7 @@ void IEEE1901Mac::handleBackoffTimer()
 {
     EV_DEBUG << "IEEE1901Mac::handleBackoffTimer() - checking channel state" << endl;
     bool busy = !isChannelIdle();
+    EV_INFO << "[SLOT_CHECK] node=" << getFullPath() << " busy=" << busy << " t=" << simTime() << endl;
     processSlotResult(busy);
 }
 
@@ -670,7 +706,7 @@ void IEEE1901Mac::setChannelBusy(bool busy)
         channelBusy = false;
     }
     s_channelBusy = (s_activeTxCount > 0);
-    EV_ALWAYS << "[PHY_BUSY] node=" << getFullPath() << " busy=" << s_channelBusy << " refcnt=" << s_activeTxCount << " t=" << simTime() << endl;
+    EV_INFO << "[PHY_BUSY] node=" << getFullPath() << " busy=" << s_channelBusy << " refcnt=" << s_activeTxCount << " t=" << simTime() << endl;
     updateDisplayString();
 }
 
@@ -837,11 +873,19 @@ void IEEE1901Mac::resetBackoffProcedure()
 // Priority Resolution Signal (PRS) Implementation based on HomePlug 1.0
 void IEEE1901Mac::startPriorityResolution(int framePriority)
 {
-    EV_DEBUG << "IEEE1901Mac::startPriorityResolution() - priority: " << framePriority << endl;
+    EV_INFO << "[PRS_START] node=" << getFullPath()
+            << " framePriority=CA" << framePriority
+            << " inPriorityResolution=" << inPriorityResolution
+            << " t=" << simTime() << endl;
 
     if (inPriorityResolution) {
-        EV_WARN << "Already in priority resolution phase" << endl;
+        EV_WARN << "[PRS_START] already in priority resolution; ignoring duplicate request" << endl;
         return;
+    }
+
+    auto &scheduler = IEEE1901GlobalScheduler::getInstance();
+    if (!scheduler.isPrsActive()) {
+        EV_DEBUG << "[PRS_START] scheduler currently idle" << endl;
     }
 
     inPriorityResolution = true;
@@ -853,22 +897,33 @@ void IEEE1901Mac::startPriorityResolution(int framePriority)
     sentPrs1 = false;
     otherPrs0Present = false;
     otherPrs1Present = false;
-
-    EV_INFO << "Starting Priority Resolution for CA" << framePriority << " frame" << endl;
+    pendingPrsSend[0] = false;
+    pendingPrsSend[1] = false;
 
     bool intent0 = shouldSendPrs0Signal(framePriority);
     bool intent1 = shouldSendPrs1Signal(framePriority);
+
     EV_INFO << "OBS PRS_INTENT node=" << getFullPath()
             << " ca=" << framePriority
             << " send0=" << (intent0 ? 1 : 0)
             << " send1=" << (intent1 ? 1 : 0)
             << " t=" << simTime() << endl;
 
-    activePrsGeneration = IEEE1901GlobalScheduler::getInstance().requestPrsWindow(this, framePriority, prs0Duration, prs1Duration);
-    if (intent0)
-        notePrsTransmission(0);
-    if (intent1)
-        notePrsTransmission(1);
+    activePrsGeneration = scheduler.requestPrsWindow(this, framePriority, prs0Duration, prs1Duration);
+    EV_INFO << "[PRS_START] request submitted gen=" << activePrsGeneration
+            << " schedulerActive=" << scheduler.isPrsActive() << endl;
+
+    if (intent0) {
+        pendingPrsSend[0] = true;
+        sentPrs0 = true;
+    }
+    if (intent1) {
+        pendingPrsSend[1] = true;
+        sentPrs1 = true;
+    }
+
+    EV_DEBUG << "[PRS_START] pendingPrsSend=[" << pendingPrsSend[0]
+             << "," << pendingPrsSend[1] << "]" << endl;
 
     updateDisplayString();
 }
@@ -899,48 +954,6 @@ bool IEEE1901Mac::shouldSendPrs1Signal(int priority)
     return shouldSend;
 }
 
-void IEEE1901Mac::sendPrsSignal(int prsSlot)
-{
-    EV_INFO << "PRS signal sent in slot " << prsSlot << endl;
-    int senderId = getMacNumericId();
-    s_prsBus.registerTransmission(prsSlot, senderId);
-    EV_DEBUG << "[PRS] Broadcast from MAC " << senderId << " slot " << prsSlot << endl;
-    for (auto *mac : s_macInstances) {
-        if (!mac)
-            continue;
-        EV_DEBUG << "[PRS] deliver to MAC " << mac->getMacNumericId() << " slot " << prsSlot << endl;
-        mac->receivePrsSignal(prsSlot, senderId);
-    }
-    EV_ALWAYS << "[PRS_SIGNAL] node=" << getFullPath()
-              << " slot=PRS" << prsSlot
-              << " gen=" << s_prsBus.generation[prsSlot]
-              << " t=" << simTime() << endl;
-}
-
-void IEEE1901Mac::detectPrsSignal(int prsSlot)
-{
-    EV_INFO << "PRS signal detected in slot " << prsSlot << endl;
-    int macId = getMacNumericId();
-    prsWindowResult[prsSlot].detected = true;
-    prsWindowResult[prsSlot].otherPresent = s_prsBus.hasOther(prsSlot, macId);
-    if (prsSlot == 0)
-        prs0SignalDetected = true;
-    else
-        prs1SignalDetected = true;
-}
-
-void IEEE1901Mac::receivePrsSignal(int prsSlot, int senderId)
-{
-    int macId = getMacNumericId();
-    EV_DEBUG << "[PRS] MAC " << macId << " received signal from " << senderId << " slot " << prsSlot << endl;
-    if (senderId == macId) {
-        // already marked during sendPrsSignal
-    }
-    else {
-        detectPrsSignal(prsSlot);
-    }
-}
-
 bool IEEE1901Mac::evaluatePriorityResolution(int framePriority)
 {
     EV_DEBUG << "IEEE1901Mac::evaluatePriorityResolution() - framePriority: " << framePriority << endl;
@@ -955,11 +968,11 @@ bool IEEE1901Mac::evaluatePriorityResolution(int framePriority)
     bool selfSentPrs0 = sentPrs0;
     bool selfSentPrs1 = sentPrs1;
 
-    EV_ALWAYS << "Priority Resolution evaluation - "
+    EV_INFO << "Priority Resolution evaluation - "
             << "PRS0 detected: " << prs0Detected
             << ", other present: " << prs0Other
             << ", self sent: " << selfSentPrs0 << endl;
-    EV_ALWAYS << "Priority Resolution evaluation - "
+    EV_INFO << "Priority Resolution evaluation - "
             << "PRS1 detected: " << prs1Detected
             << ", other present: " << prs1Other
             << ", self sent: " << selfSentPrs1 << endl;
@@ -984,7 +997,7 @@ bool IEEE1901Mac::evaluatePriorityResolution(int framePriority)
             break;
     }
 
-    EV_ALWAYS << "Priority Resolution evaluation outcome: "
+    EV_INFO << "Priority Resolution evaluation outcome: "
             << " higherPriorityDetected=" << higherPriorityDetected
             << " samePriorityConflict=" << samePriorityConflict << endl;
 
@@ -997,22 +1010,63 @@ bool IEEE1901Mac::evaluatePriorityResolution(int framePriority)
 
 void IEEE1901Mac::onPrsPhaseStart(int slot, int generation, omnetpp::simtime_t start, omnetpp::simtime_t end)
 {
-    if (!inPriorityResolution || generation != activePrsGeneration)
+    EV_DEBUG << "[PRS_PHASE_START] node=" << getFullPath()
+             << " slot=" << slot
+             << " gen=" << generation
+             << " activeGen=" << activePrsGeneration
+             << " inPR=" << inPriorityResolution
+             << " t=" << simTime() << endl;
+
+    if (!inPriorityResolution || generation != activePrsGeneration) {
+        EV_DEBUG << "[PRS_PHASE_START] ignoring callback (mismatch)" << endl;
         return;
+    }
     if (slot == 0) {
-        EV_INFO << "PRS0 phase start node=" << getFullPath() << " [" << start << "," << end << ")" << endl;
+        EV_INFO << "PRS0 phase start node=" << getFullPath() << " gen=" << generation << " [" << start << "," << end << ")" << endl;
+        if (pendingPrsSend[0]) {
+            pendingPrsSend[0] = false;
+            sendPrsSignal(0);
+        }
     }
     else if (slot == 1) {
-        EV_INFO << "PRS1 phase start node=" << getFullPath() << " [" << start << "," << end << ")" << endl;
+        EV_INFO << "PRS1 phase start node=" << getFullPath() << " gen=" << generation << " [" << start << "," << end << ")" << endl;
+        if (pendingPrsSend[1]) {
+            pendingPrsSend[1] = false;
+            sendPrsSignal(1);
+        }
     }
 }
 
 void IEEE1901Mac::onPrsPhaseEnd(int slot, int generation)
 {
-    if (!inPriorityResolution || generation != activePrsGeneration)
+    EV_DEBUG << "[PRS_PHASE_END] node=" << getFullPath()
+             << " slot=" << slot
+             << " gen=" << generation
+             << " activeGen=" << activePrsGeneration
+             << " inPR=" << inPriorityResolution
+             << " t=" << simTime() << endl;
+
+    if (!inPriorityResolution || generation != activePrsGeneration) {
+        EV_DEBUG << "[PRS_PHASE_END] ignoring callback (mismatch)" << endl;
         return;
+    }
 
     auto result = concludePrsWindow(slot);
+    const auto &participants = IEEE1901GlobalScheduler::getInstance().getPrsParticipants(slot);
+    EV_INFO << "[PRS_WINDOW] node=" << getFullPath()
+              << " slot=PRS" << slot
+              << " gen=" << generation
+              << " participants={";
+    bool first = true;
+    for (auto *mac : participants) {
+        if (!first) EV_INFO << ",";
+        EV_INFO << mac->getMacNumericId();
+        first = false;
+    }
+    EV_INFO << "} detected=" << result.detected
+              << " other=" << result.otherPresent
+              << " t=" << simTime() << endl;
+
     if (slot == 0) {
         prs0SignalDetected = result.detected;
         otherPrs0Present = result.otherPresent;
@@ -1034,6 +1088,7 @@ void IEEE1901Mac::onPrsPhaseEnd(int slot, int generation)
         else
             handlePriorityLoss();
         updateDisplayString();
+        activePrsGeneration = -1;
     }
 }
 
