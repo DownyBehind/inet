@@ -128,6 +128,17 @@ void IEEE1901Phy::handleMessage(cMessage *msg)
             auto it = std::find(activeTransmitters.begin(), activeTransmitters.end(), this);
             if (it != activeTransmitters.end()) activeTransmitters.erase(it);
         }
+        // Notify MAC: PHY busy off
+        {
+            cMessage *ctrl = new cMessage("CTRL_PHY_BUSY_OFF");
+            send(ctrl, "upperLayerOut");
+        }
+        // Notify MAC about TX result if collision model marked it
+        if (enableCollisionModel && txCollided) {
+            cMessage *fail = new cMessage("CTRL_TX_FAIL");
+            send(fail, "upperLayerOut");
+            txCollided = false;
+        }
         if (!txQueue.empty()) {
             PLCFrame *next = txQueue.front();
             txQueue.pop_front();
@@ -306,6 +317,11 @@ void IEEE1901Phy::handleFrameFromMac(PLCFrame *frame)
     // Set transmission state
     isTransmitting = true;
     currentTxDuration = txDuration;
+    // Notify MAC: PHY busy on
+    {
+        cMessage *ctrl = new cMessage("CTRL_PHY_BUSY_ON");
+        send(ctrl, "upperLayerOut");
+    }
     
     // Update statistics
     numFramesSent++;
@@ -322,10 +338,12 @@ void IEEE1901Phy::handleFrameFromMac(PLCFrame *frame)
             if (phy != this) {
                 txCollided = true;
                 phy->txCollided = true;
+                EV_ALWAYS << "[PHY_COLLISION] overlap tx between " << getFullPath()
+                        << " and " << phy->getFullPath() << " at t=" << simTime() << endl;
             }
         }
         activeTransmitters.push_back(this);
-        if (txCollided) EV_WARN << "[COLLISION] Simultaneous TX detected at channel level" << endl;
+        if (txCollided) EV_ALWAYS << "[COLLISION] Simultaneous TX detected at channel level" << endl;
     }
     
     // Send frame to channel (no errors on transmission side)
@@ -346,6 +364,11 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
     EV_INFO << "  Priority: " << frame->getPriority() << endl;
     EV_INFO << "  Payload Length: " << frame->getPayloadLength() << " bytes" << endl;
     
+    // Mark channel busy during RX processing
+    {
+        cMessage *ctrl = new cMessage("CTRL_PHY_BUSY_ON");
+        send(ctrl, "upperLayerOut");
+    }
     // Calculate current SNR and BER
     double snr = calculateSNR();
     double ber = getBitErrorRate(snr);
@@ -392,6 +415,12 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
     // Emit packet error rate (computed before potential deletion/ownership transfer)
     emit(packetErrorRateSignal, per);
     
+    // Clear busy after RX handling (delivery may be delayed but channel free for MAC contention)
+    {
+        cMessage *ctrlOff = new cMessage("CTRL_PHY_BUSY_OFF");
+        send(ctrlOff, "upperLayerOut");
+    }
+
     updateDisplayString();
 }
 
