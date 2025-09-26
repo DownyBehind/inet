@@ -103,6 +103,10 @@ void IEEE1901Mac::initialize(int stage)
         wonPriorityResolution = false;
         currentFramePriority = 0;
         
+        // Read test-only parameters
+        if (hasPar("testForceBc0Once"))
+            testForceBc0Once = par("testForceBc0Once").boolValue();
+
         // Initialize statistics
         numFramesSent = 0;
         numFramesReceived = 0;
@@ -747,6 +751,12 @@ void IEEE1901Mac::initializeBackoffCounters(int priority, int bpc)
     
     // Generate random backoff counter BC from [0, CW-1]
     backoffCounterBC = intuniform(0, currentCW - 1);
+    // Test-only: force BC=0 once to provoke a deterministic simultaneous TX
+    if (testForceBc0Once) {
+        backoffCounterBC = 0;
+        testForceBc0Once = false;
+        EV_INFO << "[TEST] Forcing BC=0 once (Option B)" << endl;
+    }
     
     EV_INFO << "Initialized HomePlug 1.0 backoff counters:" << endl;
     EV_INFO << "  Priority: CA" << priority << endl;
@@ -1002,10 +1012,13 @@ bool IEEE1901Mac::evaluatePriorityResolution(int framePriority)
             << " samePriorityConflict=" << samePriorityConflict << endl;
 
     if (higherPriorityDetected)
-        return false;
-    if (samePriorityConflict)
-        return shouldDeferPriority(framePriority);
-    return true;
+        return false; // higher class present -> lose PRS
+    if (samePriorityConflict) {
+        // Same-class conflict: proceed to CSMA/CA backoff together (HPGP behavior)
+        EV_INFO << "PRS conflict at same priority class - proceeding to backoff" << endl;
+        return true;
+    }
+    return true; // no higher, no conflict -> proceed
 }
 
 void IEEE1901Mac::onPrsPhaseStart(int slot, int generation, omnetpp::simtime_t start, omnetpp::simtime_t end)
@@ -1027,12 +1040,23 @@ void IEEE1901Mac::onPrsPhaseStart(int slot, int generation, omnetpp::simtime_t s
             pendingPrsSend[0] = false;
             sendPrsSignal(0);
         }
+        // Ensure eventlog contains ES for prs0Timer with duration equal to window length
+        if (prs0Timer && !prs0Timer->isScheduled()) {
+            // schedule at window end; scheduleAt called at 'start' so (at - st) ≈ (end - start)
+            scheduleAt(end, prs0Timer);
+            EV_DEBUG << "[PRS_TIMER] scheduled prs0Timer ES at=" << end << " (start=" << start << ")" << endl;
+        }
     }
     else if (slot == 1) {
         EV_INFO << "PRS1 phase start node=" << getFullPath() << " gen=" << generation << " [" << start << "," << end << ")" << endl;
         if (pendingPrsSend[1]) {
             pendingPrsSend[1] = false;
             sendPrsSignal(1);
+        }
+        // Ensure eventlog contains ES for prs1Timer with duration equal to window length
+        if (prs1Timer && !prs1Timer->isScheduled()) {
+            scheduleAt(end, prs1Timer);
+            EV_DEBUG << "[PRS_TIMER] scheduled prs1Timer ES at=" << end << " (start=" << start << ")" << endl;
         }
     }
 }
@@ -1090,6 +1114,30 @@ void IEEE1901Mac::onPrsPhaseEnd(int slot, int generation)
         updateDisplayString();
         activePrsGeneration = -1;
     }
+}
+
+void IEEE1901Mac::sendPrsSignal(int prsSlot)
+{
+    EV_INFO << "[PRS_TX] node=" << getFullPath() << " slot=PRS" << prsSlot << " t=" << simTime() << endl;
+    IEEE1901GlobalScheduler::getInstance().recordPrsTransmission(this, prsSlot);
+}
+
+void IEEE1901Mac::detectPrsSignal(int prsSlot)
+{
+    EV_DEBUG << "IEEE1901Mac::detectPrsSignal(" << prsSlot << ") - scheduler-driven PRS; no-op" << endl;
+}
+
+// Legacy PRS timer handlers kept for backward compatibility. In the current
+// design, PRS timing is driven by IEEE1901GlobalScheduler via callbacks.
+// These handlers are intentionally lightweight and only provide trace output.
+void IEEE1901Mac::handlePrs0Timer()
+{
+    EV_DEBUG << "IEEE1901Mac::handlePrs0Timer() - scheduler-driven PRS; no-op" << endl;
+}
+
+void IEEE1901Mac::handlePrs1Timer()
+{
+    EV_DEBUG << "IEEE1901Mac::handlePrs1Timer() - scheduler-driven PRS; no-op" << endl;
 }
 
 } // namespace inet

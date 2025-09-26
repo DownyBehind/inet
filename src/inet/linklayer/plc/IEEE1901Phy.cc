@@ -395,10 +395,16 @@ void IEEE1901Phy::handleFrameFromChannel(PLCFrame *frame)
 
     // Determine if frame should be dropped due to bit errors
     bool dropFrame = shouldDropFrame(payloadLen, ber);
-    // If explicit collision model is enabled and transmitter marked collided, drop
-    if (enableCollisionModel && txCollided) {
-        EV_WARN << "Dropping frame due to explicit collision model" << endl;
-        dropFrame = true;
+    // If explicit collision model is enabled and either transmitter marked collided
+    // or multiple concurrent transmitters are active at reception time, drop
+    if (enableCollisionModel) {
+        bool channelCollision = (activeTransmitters.size() > 1);
+        if (txCollided || channelCollision) {
+            EV_INFO << "[PHY_COLLISION] rx-side collision detected at " << getFullPath()
+                    << " activeTxCnt=" << activeTransmitters.size() << " t=" << simTime() << endl;
+            EV_WARN << "Dropping frame due to explicit collision model" << endl;
+            dropFrame = true;
+        }
     }
     
     if (dropFrame) {

@@ -113,6 +113,9 @@ class INET_API IEEE1901Mac : public MacProtocolBase
     static int s_activeTxCount;
     static std::vector<IEEE1901Mac*> s_macInstances;
 
+    // Test-only: force BC=0 once to provoke collisions in a controlled test
+    bool testForceBc0Once = false;
+
     friend class IEEE1901GlobalScheduler;
 
     PrsWindowResult prsWindowResult[2];

@@ -29,7 +29,7 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
 OBJS = \
-    $O/doc/src/developers-guide/lib/Snippets.o \
+    # $O/doc/src/developers-guide/lib/Snippets.o \
     $O/src/inet/applications/base/ApplicationBase.o \
     $O/src/inet/applications/base/ApplicationPacketSerializer.o \
     $O/src/inet/applications/clock/SimpleClockSynchronizer.o \
@@ -77,10 +77,10 @@ OBJS = \
     $O/src/inet/applications/udpapp/UdpVideoStreamServer.o \
     $O/src/inet/applications/voip/SimpleVoipReceiver.o \
     $O/src/inet/applications/voip/SimpleVoipSender.o \
-    $O/src/inet/applications/voipstream/AudioOutFile.o \
-    $O/src/inet/applications/voipstream/VoipStreamPacketSerializer.o \
-    $O/src/inet/applications/voipstream/VoipStreamReceiver.o \
-    $O/src/inet/applications/voipstream/VoipStreamSender.o \
+    # $O/src/inet/applications/voipstream/AudioOutFile.o \
+    # $O/src/inet/applications/voipstream/VoipStreamPacketSerializer.o \
+    # $O/src/inet/applications/voipstream/VoipStreamReceiver.o \
+    # $O/src/inet/applications/voipstream/VoipStreamSender.o \
     $O/src/inet/clock/base/ClockBase.o \
     $O/src/inet/clock/base/DriftingOscillatorBase.o \
     $O/src/inet/clock/base/OscillatorBase.o \
@@ -294,7 +294,7 @@ OBJS = \
     $O/src/inet/linklayer/configurator/gatescheduling/common/AlwaysOpenGateScheduleConfigurator.o \
     $O/src/inet/linklayer/configurator/gatescheduling/common/EagerGateScheduleConfigurator.o \
     $O/src/inet/linklayer/configurator/gatescheduling/common/TSNschedGateScheduleConfigurator.o \
-    $O/src/inet/linklayer/configurator/gatescheduling/z3/Z3GateScheduleConfigurator.o \
+    # $O/src/inet/linklayer/configurator/gatescheduling/z3/Z3GateScheduleConfigurator.o \
     $O/src/inet/linklayer/csmaca/CsmaCaMac.o \
     $O/src/inet/linklayer/csmaca/CsmaCaMacHeaderSerializer.o \
     $O/src/inet/linklayer/csmaca/CsmaCaMacProtocolDissector.o \
@@ -1318,15 +1318,15 @@ OBJS = \
     $O/src/inet/transportlayer/tcp_common/TcpProtocolDissector.o \
     $O/src/inet/transportlayer/tcp_common/TcpProtocolPrinter.o \
     $O/src/inet/transportlayer/tcp_common/TcpSpoof.o \
-    $O/src/inet/transportlayer/tcp_lwip/LwipTcpLayer.o \
-    $O/src/inet/transportlayer/tcp_lwip/TcpLwip.o \
-    $O/src/inet/transportlayer/tcp_lwip/TcpLwipConnection.o \
-    $O/src/inet/transportlayer/tcp_lwip/lwip/core/memp.o \
-    $O/src/inet/transportlayer/tcp_lwip/lwip/core/pbuf.o \
-    $O/src/inet/transportlayer/tcp_lwip/lwip/core/tcp.o \
-    $O/src/inet/transportlayer/tcp_lwip/lwip/core/tcp_in.o \
-    $O/src/inet/transportlayer/tcp_lwip/lwip/core/tcp_out.o \
-    $O/src/inet/transportlayer/tcp_lwip/queues/TcpLwipQueues.o \
+    # $O/src/inet/transportlayer/tcp_lwip/LwipTcpLayer.o \
+    # $O/src/inet/transportlayer/tcp_lwip/TcpLwip.o \
+    # $O/src/inet/transportlayer/tcp_lwip/TcpLwipConnection.o \
+    # $O/src/inet/transportlayer/tcp_lwip/lwip/core/memp.o \
+    # $O/src/inet/transportlayer/tcp_lwip/lwip/core/pbuf.o \
+    # $O/src/inet/transportlayer/tcp_lwip/lwip/core/tcp.o \
+    # $O/src/inet/transportlayer/tcp_lwip/lwip/core/tcp_in.o \
+    # $O/src/inet/transportlayer/tcp_lwip/lwip/core/tcp_out.o \
+    # $O/src/inet/transportlayer/tcp_lwip/queues/TcpLwipQueues.o \
     $O/src/inet/transportlayer/udp/Udp.o \
     $O/src/inet/transportlayer/udp/UdpHeaderSerializer.o \
     $O/src/inet/transportlayer/udp/UdpProtocolDissector.o \
@@ -1387,37 +1387,37 @@ OBJS = \
     $O/src/inet/visualizer/canvas/scene/SceneCanvasVisualizer.o \
     $O/src/inet/visualizer/canvas/transportlayer/TransportConnectionCanvasVisualizer.o \
     $O/src/inet/visualizer/canvas/transportlayer/TransportRouteCanvasVisualizer.o \
-    $O/src/inet/visualizer/osg/base/LinkOsgVisualizerBase.o \
-    $O/src/inet/visualizer/osg/base/PathOsgVisualizerBase.o \
-    $O/src/inet/visualizer/osg/base/SceneOsgVisualizerBase.o \
-    $O/src/inet/visualizer/osg/common/GateScheduleOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/common/InfoOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/common/PacketDropOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/common/QueueOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/common/StatisticOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/environment/PhysicalEnvironmentOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/flow/PacketFlowOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/linklayer/DataLinkOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/linklayer/Ieee80211OsgVisualizer.o \
-    $O/src/inet/visualizer/osg/linklayer/InterfaceTableOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/linklayer/LinkBreakOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/mobility/MobilityOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/networklayer/NetworkRouteOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/networklayer/RoutingTableOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/physicallayer/MediumOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/physicallayer/PhysicalLinkOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/physicallayer/RadioOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/physicallayer/TracingObstacleLossOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/power/EnergyStorageOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/scene/NetworkConnectionOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/scene/NetworkNodeOsgVisualization.o \
-    $O/src/inet/visualizer/osg/scene/NetworkNodeOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/scene/SceneOsgEarthVisualizer.o \
-    $O/src/inet/visualizer/osg/scene/SceneOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/transportlayer/TransportConnectionOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/transportlayer/TransportRouteOsgVisualizer.o \
-    $O/src/inet/visualizer/osg/util/OsgScene.o \
-    $O/src/inet/visualizer/osg/util/OsgUtils.o \
+    # $O/src/inet/visualizer/osg/base/LinkOsgVisualizerBase.o \
+    # $O/src/inet/visualizer/osg/base/PathOsgVisualizerBase.o \
+    # $O/src/inet/visualizer/osg/base/SceneOsgVisualizerBase.o \
+    # $O/src/inet/visualizer/osg/common/GateScheduleOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/common/InfoOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/common/PacketDropOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/common/QueueOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/common/StatisticOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/environment/PhysicalEnvironmentOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/flow/PacketFlowOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/linklayer/DataLinkOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/linklayer/Ieee80211OsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/linklayer/InterfaceTableOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/linklayer/LinkBreakOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/mobility/MobilityOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/networklayer/NetworkRouteOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/networklayer/RoutingTableOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/physicallayer/MediumOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/physicallayer/PhysicalLinkOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/physicallayer/RadioOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/physicallayer/TracingObstacleLossOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/power/EnergyStorageOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/scene/NetworkConnectionOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/scene/NetworkNodeOsgVisualization.o \
+    # $O/src/inet/visualizer/osg/scene/NetworkNodeOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/scene/SceneOsgEarthVisualizer.o \
+    # $O/src/inet/visualizer/osg/scene/SceneOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/transportlayer/TransportConnectionOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/transportlayer/TransportRouteOsgVisualizer.o \
+    # $O/src/inet/visualizer/osg/util/OsgScene.o \
+    # $O/src/inet/visualizer/osg/util/OsgUtils.o \
     $O/src/inet/visualizer/util/AnimationPosition.o \
     $O/src/inet/visualizer/util/AnimationSpeedInterpolator.o \
     $O/src/inet/visualizer/util/ColorSet.o \
@@ -1676,7 +1676,7 @@ OBJS = \
 
 # Message files
 MSGFILES = \
-    doc/src/developers-guide/lib/Snippets.msg \
+    # doc/src/developers-guide/lib/Snippets.msg \
     src/inet/applications/base/ApplicationPacket.msg \
     src/inet/applications/dhcp/DhcpMessage.msg \
     src/inet/applications/ethernet/EtherApp.msg \
@@ -1892,7 +1892,7 @@ MSGFILES = \
     src/inet/transportlayer/tcp_common/TcpHeader.msg \
     src/inet/transportlayer/udp/UdpHeader.msg \
     src/inet/visualizer/base/PacketDrop.msg \
-    tests/packet/UnitTest.msg
+    # tests/packet/UnitTest.msg
 
 # SM files
 SMFILES =

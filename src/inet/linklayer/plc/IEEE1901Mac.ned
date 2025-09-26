@@ -94,5 +94,8 @@ simple IEEE1901Mac extends MacProtocolBase
         double frameDetectionTime @unit(s) = default(2us);   // Time to detect frame start
         double framePreambleTime @unit(s) = default(8us);    // Preamble duration
         
+        // Test-only parameters (disabled by default)
+        bool testForceBc0Once = default(false);              // If true, force BC=0 once to provoke a collision in tests
+        
     // inherit gates from MacProtocolBase (upper/lower in/out)
 }
